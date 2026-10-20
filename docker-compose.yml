@@ -1,0 +1,133 @@
+# BigBlueButton Recording Converter — full stack
+#
+#   frontend  : Next.js 16 (proxies the API on the same origin)
+#   backend   : FastAPI + FFmpeg (inline worker mode by default)
+#   worker    : optional Celery worker  -> start with: docker compose --profile queue up
+#   beat      : optional Celery beat (cleanup scheduler), same profile
+#   redis     : Celery broker/backend (queue profile)
+#   postgres  : persistent job metadata (always on)
+#
+# Single-node quick start:  docker compose up --build
+# Production queue mode  :  JOB_QUEUE=celery docker compose --profile queue up --build
+
+name: bbb-converter
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        BACKEND_ORIGIN: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://bbb:bbb_password@postgres:5432/bbb_converter
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE: ${JOB_QUEUE:-inline}
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string}
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:3000/api}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}
+      OUTPUT_TTL_HOURS: ${OUTPUT_TTL_HOURS:-24}
+      CLEANUP_INTERVAL_MINUTES: ${CLEANUP_INTERVAL_MINUTES:-10}
+      STORAGE_QUOTA_GB: ${STORAGE_QUOTA_GB:-25}
+      MIN_FREE_DISK_GB: ${MIN_FREE_DISK_GB:-2}
+      MAX_RECORDING_HOURS: ${MAX_RECORDING_HOURS:-8}
+      MAX_ASSET_MB: ${MAX_ASSET_MB:-2048}
+      VERIFY_TLS: ${VERIFY_TLS:-true}
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - media_data:/app/data
+    expose:
+      - "8000"
+    # Uncomment to reach the API directly (outside the frontend proxy):
+    # ports:
+    #   - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    profiles: ["queue"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "alembic upgrade head &&
+             celery -A app.jobs.celery_app:make_celery() worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2}"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://bbb:bbb_password@postgres:5432/bbb_converter
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE: celery
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string}
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:3000/api}
+      DEMO_MODE: ${DEMO_MODE:-true}
+      MAX_RECORDING_HOURS: ${MAX_RECORDING_HOURS:-8}
+      MAX_ASSET_MB: ${MAX_ASSET_MB:-2048}
+      FFMPEG_TIMEOUT_S: ${FFMPEG_TIMEOUT_S:-10800}
+    volumes:
+      - media_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  beat:
+    profiles: ["queue"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "celery -A app.jobs.celery_app:make_celery() beat --loglevel=info"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://bbb:bbb_password@postgres:5432/bbb_converter
+      REDIS_URL: redis://redis:6379/0
+      JOB_QUEUE: celery
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["queue"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bbb
+      POSTGRES_PASSWORD: bbb_password
+      POSTGRES_DB: bbb_converter
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbb -d bbb_converter"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  media_data:
+  pg_data:

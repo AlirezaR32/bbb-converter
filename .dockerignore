@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+dev.log
+server.log
+backend
+*.md
+.env*
