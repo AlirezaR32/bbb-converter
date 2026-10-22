@@ -100,6 +100,26 @@ def test_mp3_flow(client, demo_server):
     client.delete(f"/api/conversions/{jid}")
 
 
+def test_absolute_download_url(client, demo_server, monkeypatch):
+    """PUBLIC_DOWNLOAD_BASE_URL must produce absolute (cross-origin) download links."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "public_download_base_url", "https://bbb-api.example.com")
+    url = _demo_url(client).replace(":8000", ":8765")
+    jid = client.post("/api/conversions", json={"url": url, "format": "mp3"}).json()["id"]
+    final = None
+    for _ in range(45):
+        time.sleep(2)
+        final = client.get(f"/api/conversions/{jid}").json()
+        if final["status"] in ("completed", "failed", "canceled"):
+            break
+    assert final["status"] == "completed", final
+    assert final["download"]["url"].startswith("https://bbb-api.example.com/api/conversions/")
+    # The direct link itself must work (token signed for the same job).
+    assert client.get(final["download"]["url"].replace("https://bbb-api.example.com", "")).status_code == 200
+    client.delete(f"/api/conversions/{jid}")
+
+
 def test_sse_stream_reports_progress(client, demo_server):
     url = _demo_url(client).replace(":8000", ":8765")
     jid = client.post("/api/conversions", json={"url": url, "format": "mp3"}).json()["id"]

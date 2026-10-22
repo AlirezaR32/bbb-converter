@@ -161,6 +161,16 @@ For a reverse proxy in front of the frontend, disable response buffering for SSE
 (`X-Accel-Buffering: no` is already sent by the API; e.g. in nginx:
 `proxy_buffering off` for `/api/conversions/*/events`).
 
+### Serverless platforms: Render + Vercel
+
+The repo ships a ready Render blueprint (`render.yaml`, API + PostgreSQL) and the UI
+deploys to Vercel with a single `BACKEND_ORIGIN` variable. Full walkthrough, plan limits,
+and troubleshooting: **[docs/DEPLOY-RENDER-VERCEL.md](docs/DEPLOY-RENDER-VERCEL.md)**.
+
+```bash
+curl https://<your-api>.onrender.com/api/health
+```
+
 ---
 
 ## API reference
@@ -288,6 +298,7 @@ See [.env.example](.env.example) for the full annotated list. Highlights:
 |---|---|---|
 | `SECRET_KEY` | dev placeholder | HMAC key for download tokens — **change in production** |
 | `DATABASE_URL` | SQLite | `postgresql+psycopg2://user:pass@host/db` in production |
+| `PUBLIC_DOWNLOAD_BASE_URL` | *(empty)* | absolute base for download links — set when the API is on another domain (Render + Vercel) |
 | `JOB_QUEUE` | `inline` | `celery` enables the Redis-backed worker |
 | `MAX_CONCURRENT_JOBS` | 2 | global conversion parallelism |
 | `MAX_RECORDING_HOURS` | 8 | refuses longer recordings |

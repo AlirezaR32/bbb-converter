@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     secret_key: str = "dev-insecure-secret-change-me"
     # Public URL of this backend (used to construct/allow the demo recording URL).
     backend_public_url: str = "http://127.0.0.1:8000"
+    # Absolute base URL placed into download links (e.g. https://bbb-api.onrender.com).
+    # Needed when the API is reached through a different domain than the UI (Vercel +
+    # Render): large downloads must stream straight from the backend, not through the
+    # serverless proxy. Leave empty for same-origin relative links (single domain).
+    public_download_base_url: str = ""
 
     # --- database / queue ---
     database_url: str = f"sqlite:///{BASE_DIR / 'data' / 'bbb_converter.db'}"

@@ -31,12 +31,15 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _job_to_out(job, base_url: str = "") -> JobOut:
+def _job_to_out(job, base_url: str | None = None) -> JobOut:
     data = job.to_dict()
     if job.status == "completed" and job.output_filename:
-        token, expires = sign_download_token(get_settings(), job.id)
+        settings = get_settings()
+        token, expires = sign_download_token(settings, job.id)
+        if base_url is None:
+            base_url = settings.public_download_base_url
         data["download"] = {
-            "url": f"{base_url}/api/conversions/{job.id}/download?token={token}",
+            "url": f"{base_url.rstrip('/')}/api/conversions/{job.id}/download?token={token}",
             "token": token,
             "expires_at": expires,
             "filename": _download_name(job),

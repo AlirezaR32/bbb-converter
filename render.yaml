@@ -1,0 +1,90 @@
+# Render Blueprint — deploys the converter API (Docker) + PostgreSQL in one click.
+#
+#   Repo root  →  https://dashboard.render.com  →  New → Blueprint  →  pick this repo.
+#   The Next.js UI is deployed separately on Vercel — see docs/DEPLOY-RENDER-VERCEL.md.
+#
+# After the first deploy finishes, set these two env vars on the service
+# (Settings → Environment) to your actual Render URL, e.g. https://bbb-converter-api.onrender.com:
+#   BACKEND_PUBLIC_URL        — enables the bundled demo recording chip in the UI
+#   PUBLIC_DOWNLOAD_BASE_URL  — makes download links point straight at Render
+#                               (bypasses the Vercel proxy for large files)
+# Render redeploys automatically when env vars change.
+
+services:
+  - type: web
+    name: bbb-converter-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    # `free` is fine for the demo recording and short clips (512 MB RAM, spins down
+    # when idle, ephemeral disk). For long real recordings use `standard` (2 GB RAM)
+    # and add a persistent disk:
+    #   disk:
+    #     name: bbb-media
+    #     mountPath: /app/data
+    #     sizeGB: 10
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bbb-converter-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: BACKEND_PUBLIC_URL
+        sync: false
+      - key: PUBLIC_DOWNLOAD_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: DEMO_MODE
+        value: "true"
+      - key: JOB_QUEUE
+        value: "inline"
+      - key: OUTPUT_TTL_HOURS
+        value: "24"
+      - key: MAX_CONCURRENT_JOBS
+        value: "1"
+      - key: ALLOW_INSECURE_HTTP
+        value: "false"
+
+# Optional production queue mode (survives deploys, parallel conversions).
+# Uncomment ALL of the following, and set JOB_QUEUE=celery on the web service above.
+#
+#  - type: worker
+#    name: bbb-converter-worker
+#    runtime: docker
+#    dockerfilePath: ./backend/Dockerfile
+#    dockerContext: ./backend
+#    plan: starter
+#    dockerCommand: "celery -A app.jobs.celery_app:make_celery() worker --loglevel=info --concurrency=2"
+#    envVars:
+#      - key: DATABASE_URL
+#        fromDatabase:
+#          name: bbb-converter-db
+#          property: connectionString
+#      - key: REDIS_URL
+#        fromService:
+#          type: keyvalue
+#          name: bbb-converter-redis
+#          property: connectionString
+#      - key: JOB_QUEUE
+#        value: "celery"
+#      - key: SECRET_KEY
+#        sync: false
+#      - key: BACKEND_PUBLIC_URL
+#        sync: false
+#      - key: PUBLIC_DOWNLOAD_BASE_URL
+#        sync: false
+#
+#  - type: keyvalue
+#    name: bbb-converter-redis
+#    plan: free
+#    maxmemoryPolicy: noeviction
+
+databases:
+  - name: bbb-converter-db
+    databaseName: bbb_converter
+    # Free Postgres expires after 30 days — switch to basic-256mb+ for production.
+    plan: free
